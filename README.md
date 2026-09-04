@@ -147,6 +147,125 @@ pip install timesfm[torch]
 
 --------------------------------------------------------------------------------
 
+## Table of Contents
+
+-   [Install](#install)
+-   [Code Examples: TimesFM 3.0](#code-examples-timesfm-30)
+-   [Understanding Forecast Results](#understanding-forecast-results)
+-   [Update — August 2026](#update--august-2026)
+-   [Update - July 2, 2026](#update---july-2-2026)
+-   [Update - Apr. 9, 2026](#update---apr-9-2026)
+-   [Update - Mar. 19, 2026](#update---mar-19-2026)
+-   [Update - Oct. 29, 2025](#update---oct-29-2025)
+-   [Update - Sept. 15, 2025](#update---sept-15-2025)
+
+--------------------------------------------------------------------------------
+
+## Understanding Forecast Results
+
+TimesFM produces a forecast for the future horizon only. The historical values you pass into the model are treated as input context, while the returned array represents the model's prediction for the next steps.
+
+The project currently exposes the following result fields through the public API:
+
+-   `ts_id`: the optional identifier for each series.
+-   `forecast`: a point forecast for each future step.
+-   `quantiles`: a full quantile forecast for each future step.
+-   `forecast.shape`: the horizon length for a univariate output.
+-   `quantiles.shape`: the horizon length by the number of quantiles.
+
+### Reading the terminal output
+
+The sample workflow prints one result per series. For example, the project output currently looks like this:
+
+```text
+Forecast results:
+- series_1: forecast shape=(12,), quantiles shape=(12, 9)
+  forecast values (first 5): [191.95196533203125, 194.01124572753906, 195.78428649902344, 197.26284790039062, 198.37374877929688]
+  median quantile values (first 5): [191.95196533203125, 194.01124572753906, 195.78428649902344, 197.26284790039062, 198.37374877929688]
+- series_2: forecast shape=(12,), quantiles shape=(12, 9)
+  forecast values (first 5): [161.9519805908203, 164.01129150390625, 165.78436279296875, 167.26295471191406, 168.37388610839844]
+  median quantile values (first 5): [161.9519805908203, 164.01129150390625, 165.78436279296875, 167.26295471191406, 168.37388610839844]
+```
+
+This represents a 12-step forecast for each time series. The values are not the historical context; they are the model's predicted future values for the next 12 periods.
+
+### Forecasted values
+
+`forecast` is the model's point prediction for each future step. In the sample output above, the first forecasted value for `series_1` is `191.95`, the second is `194.01`, and so on. These are the primary values to use when evaluating the direction and magnitude of the upcoming horizon.
+
+For the default configuration in this project, `forecast` corresponds to the median quantile prediction, which is the 5th element of the `quantiles` bundle. In other words, the model is producing a point estimate and a set of uncertainty quantiles together.
+
+### Historical vs. predicted values
+
+The project does not print the historical input series alongside the forecast in the sample terminal output. Instead, the history is the time series you provide as the `context` argument, and the forecast is generated for the future window. A typical evaluation workflow is:
+
+1. Load historical values.
+2. Run `predict_batch(...)` or `predict(...)`.
+3. Compare the historical trend with the forecasted horizon.
+4. Assess whether the future values continue the observed trend, flatten, rise, or decay.
+
+The forecast should be interpreted as future behavior beyond the last observed timestamp, not as a reconstruction of historical data.
+
+### Confidence and prediction intervals
+
+The project returns quantiles for each step, with a shape of `(horizon, 9)` in the sample run. The default quantile set is the standard 9-point family from `0.1` to `0.9`.
+
+In this output, the `quantiles` array contains the distribution of possible outcomes for each forecast step. The median is the middle quantile (`[..., 4]`). The other quantiles provide the lower and upper uncertainty bands:
+
+-   lower quantiles: roughly `0.1`, `0.2`, `0.3`, `0.4`
+-   median: `0.5`
+-   upper quantiles: roughly `0.6`, `0.7`, `0.8`, `0.9`
+
+A wider spread between lower and upper quantiles usually indicates higher uncertainty. A narrower spread usually indicates a more confident prediction. Use the quantile range to judge how certain the forecast is at each step.
+
+### Model accuracy and error metrics
+
+The sample terminal workflow currently reports forecast values and quantiles, but it does not compute or print standard accuracy metrics such as MAE, RMSE, MAPE, or coverage. Those metrics are not produced by the sample runner itself.
+
+When evaluating a forecast, the user should compare the model output against known actual future values (ground truth) using their own evaluation code. Common metrics include:
+
+-   MAE: mean absolute error
+-   RMSE: root mean squared error
+-   MAPE: mean absolute percentage error
+-   Quantile loss or coverage: how often actual values fall inside the model's predicted intervals
+
+This project's current output is primarily a forecasting artifact, not a full benchmark report.
+
+### Trends, seasonality, and anomalies
+
+The output should be interpreted qualitatively as well as quantitatively:
+
+-   Trends: does the forecast continue an upward, downward, or flat trajectory?
+-   Seasonality: does the pattern repeat at a regular interval or show periodic structure?
+-   Anomalies: were there sudden changes or outlier events in the historical context that are not captured in the future forecast? The model does not explicitly label anomalies; you must inspect the forecast and the original series together.
+
+A forecast with a steadily rising median and reasonably narrow quantile bands usually suggests a stable trend. A forecast with wide quantile spreads or abrupt changes may indicate uncertainty or potential regime shifts.
+
+### Other outputs currently produced by the project
+
+The project currently emits the following useful metadata in the sample terminal output:
+
+-   `ts_id`: identifies each series in the batch.
+-   `forecast shape`: the horizon length for each series.
+-   `quantiles shape`: the horizon-by-quantile matrix.
+-   `median quantile values`: the center estimate for each step.
+
+The runner is not currently printing downstream analytics like error rates, summary tables, or anomaly flags. For those, the user should add post-processing around the returned `forecast` and `quantiles` arrays.
+
+### How to use the result in practice
+
+When evaluating a TimesFM forecast, treat the output as follows:
+
+-   Use `forecast` as the main point estimate.
+-   Use `quantiles` to judge uncertainty.
+-   Compare the forecast horizon against the historical context to assess plausibility.
+-   Evaluate actual future performance using external ground truth and metrics such as MAE or RMSE.
+-   Inspect trend, seasonality, and anomalies visually or through custom analysis.
+
+This is exactly how the project's sample workflow behaves today: it produces a forecast and quantile distribution, but the user is expected to interpret those values and optionally add their own downstream evaluation logic.
+
+--------------------------------------------------------------------------------
+
 ### Code Examples: TimesFM 3.0
 
 #### 1. Univariate Forecasting (Variable Lengths)
